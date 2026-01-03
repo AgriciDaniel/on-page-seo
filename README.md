@@ -4,11 +4,11 @@ A comprehensive on-page SEO analysis tool that helps you audit and optimize your
 
 ![On-Page SEO Dashboard](docs/screenshot.png)
 
-## Video Tutorial
+## How It Was Built
 
-[![Watch the tutorial](https://img.youtube.com/vi/jRSx4q8AghU/maxresdefault.jpg)](https://youtu.be/jRSx4q8AghU)
+[![Watch how it was built](https://img.youtube.com/vi/jRSx4q8AghU/maxresdefault.jpg)](https://youtu.be/jRSx4q8AghU)
 
-**[Watch the full tutorial on YouTube](https://youtu.be/jRSx4q8AghU)**
+**[Watch the journey from n8n workflow to full app on YouTube](https://youtu.be/jRSx4q8AghU)**
 
 ## Features
 
