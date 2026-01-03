@@ -1,0 +1,47 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+client/dist/
+server/dist/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Database
+data/*.db
+data/*.db-wal
+data/*.db-shm
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Testing
+coverage/
+
+# Misc
+*.tgz
+.cache/
+.temp/
+*.tmp
+
+# TypeScript
+*.tsbuildinfo
+
+# OS
+Thumbs.db

@@ -1,0 +1,34 @@
+{
+  "name": "on-page-seo",
+  "version": "1.0.0",
+  "description": "On-Page SEO Analyzer - Analyze and optimize your website's SEO performance",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:client": "cd client && npm run dev",
+    "dev:server": "cd server && npm run dev",
+    "build": "npm run build:client && npm run build:server",
+    "build:client": "cd client && npm run build",
+    "build:server": "cd server && npm run build",
+    "start": "cd server && npm run start",
+    "lint": "cd client && npm run lint",
+    "format": "cd client && npm run format",
+    "install:all": "npm install && cd client && npm install && cd ../server && npm install"
+  },
+  "keywords": [
+    "seo",
+    "on-page-seo",
+    "seo-analyzer",
+    "website-audit",
+    "core-web-vitals"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
