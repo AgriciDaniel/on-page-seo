@@ -1,10 +1,16 @@
 import { Router, type Request, type Response } from 'express';
 import { v4 as uuidv4 } from 'uuid';
-import { auditQueries, pageQueries } from '../db/database.js';
+import { auditQueries, pageQueries, rankedKeywordQueries } from '../db/database.js';
 import { discoverPages } from '../services/firecrawl.service.js';
 import { analyzePageWithRetry } from '../services/dataforseo.service.js';
 import { transformSEOData } from '../services/seo-analyzer.service.js';
-import type { Audit, PageResult, ProgressEvent, CreateAuditRequest } from '../types/index.js';
+import {
+  analyzeRankedKeywords,
+  DEFAULT_LOCATION_CODE,
+  DEFAULT_LANGUAGE_CODE,
+  DEFAULT_KEYWORD_LIMIT,
+} from '../services/ranked-keywords.service.js';
+import type { Audit, PageResult, RankedKeyword, RankedKeywordsSummary, ProgressEvent, CreateAuditRequest } from '../types/index.js';
 
 const router = Router();
 
@@ -13,6 +19,54 @@ const sseConnections = new Map<string, Set<Response>>();
 
 // Store for cancellation flags
 const cancelledAudits = new Set<string>();
+
+// Helper to run keyword analysis after page processing (non-blocking)
+async function runKeywordAnalysis(
+  auditId: string,
+  url: string,
+  locationCode: number,
+  languageCode: string,
+  keywordLimit: number
+): Promise<void> {
+  try {
+    sendProgress(auditId, {
+      audit_id: auditId,
+      status: 'completed',
+      total_pages: 0,
+      completed_pages: 0,
+      keyword_status: 'fetching',
+      keyword_progress: 'Starting keyword analysis...',
+    });
+
+    await analyzeRankedKeywords(
+      auditId,
+      url,
+      locationCode,
+      languageCode,
+      keywordLimit,
+      (status, message) => {
+        sendProgress(auditId, {
+          audit_id: auditId,
+          status: 'completed',
+          total_pages: 0,
+          completed_pages: 0,
+          keyword_status: status,
+          keyword_progress: message,
+        });
+      }
+    );
+  } catch (error) {
+    console.error(`Keyword analysis failed for audit ${auditId}:`, error);
+    sendProgress(auditId, {
+      audit_id: auditId,
+      status: 'completed',
+      total_pages: 0,
+      completed_pages: 0,
+      keyword_status: 'failed',
+      keyword_progress: error instanceof Error ? error.message : 'Keyword analysis failed',
+    });
+  }
+}
 
 // Helper to send SSE event to all connections for an audit
 function sendProgress(auditId: string, event: ProgressEvent): void {
@@ -180,6 +234,9 @@ async function processAudit(auditId: string, url: string, limit: number): Promis
       total_pages: pages.length,
       completed_pages: pages.length,
     });
+
+    // Run keyword analysis in background (non-blocking, failure doesn't affect audit)
+    runKeywordAnalysis(auditId, url, DEFAULT_LOCATION_CODE, DEFAULT_LANGUAGE_CODE, DEFAULT_KEYWORD_LIMIT).catch(console.error);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     console.error(`Audit ${auditId} failed:`, error);
@@ -335,6 +392,9 @@ async function processAuditWithPages(auditId: string, _url: string, pages: strin
       total_pages: pages.length,
       completed_pages: pages.length,
     });
+
+    // Run keyword analysis in background (non-blocking, failure doesn't affect audit)
+    runKeywordAnalysis(auditId, _url, DEFAULT_LOCATION_CODE, DEFAULT_LANGUAGE_CODE, DEFAULT_KEYWORD_LIMIT).catch(console.error);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
     console.error(`Audit ${auditId} failed:`, error);
@@ -393,6 +453,37 @@ router.post('/', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error creating audit:', error);
     res.status(500).json({ error: 'Failed to create audit' });
+  }
+});
+
+// KEYWORDS - Re-fetch ranked keywords for an audit
+router.post('/:id/keywords', async (req: Request, res: Response) => {
+  try {
+    const auditId = req.params.id;
+    const audit = auditQueries.getById.get(auditId) as Audit | undefined;
+
+    if (!audit) {
+      res.status(404).json({ error: 'Audit not found' });
+      return;
+    }
+
+    const {
+      location_code = DEFAULT_LOCATION_CODE,
+      language_code = DEFAULT_LANGUAGE_CODE,
+      limit = DEFAULT_KEYWORD_LIMIT,
+    } = req.body as { location_code?: number; language_code?: string; limit?: number };
+
+    // Delete existing keywords
+    rankedKeywordQueries.deleteByAuditId.run(auditId);
+    rankedKeywordQueries.deleteSummaryByAuditId.run(auditId);
+
+    // Run keyword analysis in background
+    runKeywordAnalysis(auditId, audit.url, location_code, language_code, limit).catch(console.error);
+
+    res.json({ success: true, message: 'Keyword analysis started' });
+  } catch (error) {
+    console.error('Error starting keyword analysis:', error);
+    res.status(500).json({ error: 'Failed to start keyword analysis' });
   }
 });
 
@@ -516,10 +607,16 @@ router.get('/:id', (req: Request, res: Response) => {
         .length,
     };
 
+    // Get ranked keywords data
+    const rankedKeywords = rankedKeywordQueries.getByAuditId.all(req.params.id) as RankedKeyword[];
+    const rankedKeywordsSummary = rankedKeywordQueries.getSummaryByAuditId.get(req.params.id) as RankedKeywordsSummary | undefined;
+
     res.json({
       ...audit,
       pages: convertedPages,
       summary,
+      ranked_keywords: rankedKeywords,
+      ranked_keywords_summary: rankedKeywordsSummary || undefined,
     });
   } catch (error) {
     console.error('Error fetching audit:', error);
@@ -568,6 +665,7 @@ router.get('/:id/progress', (req: Request, res: Response) => {
 router.get('/:id/export', (req: Request, res: Response) => {
   try {
     const format = req.query.format as string || 'csv';
+    const type = req.query.type as string || 'pages';
     const audit = auditQueries.getById.get(req.params.id) as Audit | undefined;
 
     if (!audit) {
@@ -575,6 +673,48 @@ router.get('/:id/export', (req: Request, res: Response) => {
       return;
     }
 
+    // Export keywords
+    if (type === 'keywords') {
+      const keywords = rankedKeywordQueries.getByAuditId.all(req.params.id) as RankedKeyword[];
+
+      if (format === 'json') {
+        res.setHeader('Content-Type', 'application/json');
+        res.setHeader('Content-Disposition', `attachment; filename="keywords-${audit.id}.json"`);
+        const summary = rankedKeywordQueries.getSummaryByAuditId.get(req.params.id) as RankedKeywordsSummary | undefined;
+        res.json({ audit: { id: audit.id, url: audit.url }, keywords, summary });
+        return;
+      }
+
+      // CSV export for keywords
+      const kwHeaders = [
+        'Keyword', 'Position', 'Position Absolute', 'Search Volume', 'CPC',
+        'Competition', 'Competition Level', 'URL', 'ETV', 'Traffic Cost',
+        'Search Intent', 'Trend',
+      ];
+
+      const kwRows = keywords.map((kw) => [
+        `"${(kw.keyword || '').replace(/"/g, '""')}"`,
+        kw.position,
+        kw.position_absolute,
+        kw.search_volume,
+        kw.cpc?.toFixed(2) || '0',
+        kw.competition?.toFixed(2) || '0',
+        kw.competition_level || '',
+        `"${(kw.url || '').replace(/"/g, '""')}"`,
+        kw.etv?.toFixed(2) || '0',
+        kw.estimated_paid_traffic_cost?.toFixed(2) || '0',
+        kw.search_intent || '',
+        kw.trend || '',
+      ]);
+
+      const kwCsv = [kwHeaders.join(','), ...kwRows.map((row) => row.join(','))].join('\n');
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="keywords-${audit.id}.csv"`);
+      res.send(kwCsv);
+      return;
+    }
+
+    // Export pages (default)
     const pages = pageQueries.getByAuditId.all(req.params.id) as PageResult[];
 
     if (format === 'json') {
@@ -663,7 +803,9 @@ router.delete('/:id', (req: Request, res: Response) => {
       return;
     }
 
-    // Delete page results first (foreign key)
+    // Delete related data first (foreign keys)
+    rankedKeywordQueries.deleteByAuditId.run(req.params.id);
+    rankedKeywordQueries.deleteSummaryByAuditId.run(req.params.id);
     pageQueries.deleteByAuditId.run(req.params.id);
     auditQueries.delete.run(req.params.id);
 
