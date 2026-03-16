@@ -59,9 +59,23 @@ export const auditApi = {
     return response.data
   },
 
+  // Re-fetch ranked keywords
+  refetchKeywords: async (
+    id: string,
+    config?: { location_code?: number; language_code?: string; limit?: number }
+  ): Promise<{ success: boolean; message: string }> => {
+    const response = await api.post<{ success: boolean; message: string }>(
+      `/audits/${id}/keywords`,
+      config || {}
+    )
+    return response.data
+  },
+
   // Export audit
   exportCsv: (id: string): string => `/api/audits/${id}/export?format=csv`,
   exportJson: (id: string): string => `/api/audits/${id}/export?format=json`,
+  exportKeywordsCsv: (id: string): string => `/api/audits/${id}/export?format=csv&type=keywords`,
+  exportKeywordsJson: (id: string): string => `/api/audits/${id}/export?format=json&type=keywords`,
 
   // Subscribe to progress updates (SSE)
   subscribeToProgress: (

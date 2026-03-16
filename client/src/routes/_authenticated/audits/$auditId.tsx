@@ -1,11 +1,18 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
-import { ArrowLeft, Download, Loader2, RefreshCw } from 'lucide-react'
+import { ArrowLeft, Download, Loader2, RefreshCw, Key } from 'lucide-react'
 import { toast } from 'sonner'
 import { Header } from '@/components/layout/header'
 import { Main } from '@/components/layout/main'
 import { Button } from '@/components/ui/button'
-import { useAudit, AuditTable, AuditSummaryCards } from '@/features/seo-audit'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import {
+  useAudit,
+  AuditTable,
+  AuditSummaryCards,
+  RankedKeywordsSummaryCards,
+  RankedKeywordsTable,
+} from '@/features/seo-audit'
 import { auditApi } from '@/lib/api'
 
 export const Route = createFileRoute('/_authenticated/audits/$auditId')({
@@ -15,8 +22,46 @@ export const Route = createFileRoute('/_authenticated/audits/$auditId')({
 function AuditDetailPage() {
   const { auditId } = Route.useParams()
   const navigate = useNavigate()
-  const { data: audit, isLoading, error } = useAudit(auditId)
+  const { data: audit, isLoading, error, refetch } = useAudit(auditId)
   const [isRegenerating, setIsRegenerating] = useState(false)
+  const [isAnalyzingKeywords, setIsAnalyzingKeywords] = useState(false)
+  const pollingRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const prevSummaryRef = useRef<string | null>(null)
+
+  // Clean up polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollingRef.current) clearInterval(pollingRef.current)
+    }
+  }, [])
+
+  // Stop polling when keywords summary arrives after deletion
+  useEffect(() => {
+    if (!isAnalyzingKeywords) return
+    const hasSummary = !!audit?.ranked_keywords_summary
+
+    if (prevSummaryRef.current === '__waiting__' && !hasSummary) {
+      // Summary was deleted, waiting for new data
+      prevSummaryRef.current = '__deleted__'
+    } else if (
+      (prevSummaryRef.current === '__deleted__' && hasSummary) ||
+      (prevSummaryRef.current === '__waiting__' && hasSummary)
+    ) {
+      // New summary arrived
+      setIsAnalyzingKeywords(false)
+      if (pollingRef.current) {
+        clearInterval(pollingRef.current)
+        pollingRef.current = null
+      }
+      prevSummaryRef.current = null
+      const count = audit?.ranked_keywords?.length || 0
+      if (count > 0) {
+        toast.success(`Found ${count} ranked keywords!`)
+      } else {
+        toast.info('No ranked keywords found for this domain.')
+      }
+    }
+  }, [audit?.ranked_keywords_summary, audit?.ranked_keywords?.length, isAnalyzingKeywords])
 
   const handleRegenerate = async () => {
     if (!audit) return
@@ -30,6 +75,32 @@ function AuditDetailPage() {
       toast.error('Failed to regenerate audit')
     } finally {
       setIsRegenerating(false)
+    }
+  }
+
+  const handleRefetchKeywords = async () => {
+    setIsAnalyzingKeywords(true)
+    prevSummaryRef.current = '__waiting__'
+    try {
+      await auditApi.refetchKeywords(auditId)
+      toast.info('Keyword analysis started...')
+
+      // Poll every 3 seconds until results appear, max 60 seconds
+      let elapsed = 0
+      pollingRef.current = setInterval(() => {
+        elapsed += 3000
+        refetch()
+        if (elapsed >= 60000) {
+          if (pollingRef.current) clearInterval(pollingRef.current)
+          pollingRef.current = null
+          setIsAnalyzingKeywords(false)
+          toast.error('Keyword analysis timed out. Try again later.')
+        }
+      }, 3000)
+    } catch (err) {
+      console.error('Failed to refetch keywords:', err)
+      toast.error('Failed to start keyword analysis')
+      setIsAnalyzingKeywords(false)
     }
   }
 
@@ -80,6 +151,9 @@ function AuditDetailPage() {
     )
   }
 
+  const keywordCount = audit.ranked_keywords?.length || 0
+  const pageCount = audit.pages?.length || 0
+
   return (
     <>
       <Header fixed>
@@ -127,16 +201,85 @@ function AuditDetailPage() {
       </Header>
 
       <Main>
-        <div className='space-y-4 sm:space-y-6'>
-          {/* Summary Cards */}
-          <AuditSummaryCards audit={audit} />
+        <Tabs defaultValue='pages' className='space-y-4 sm:space-y-6'>
+          <TabsList>
+            <TabsTrigger value='pages'>
+              Page Analysis ({pageCount})
+            </TabsTrigger>
+            <TabsTrigger value='keywords'>
+              Ranked Keywords ({keywordCount})
+            </TabsTrigger>
+          </TabsList>
 
-          {/* Results Table */}
-          <div>
-            <h2 className='mb-3 sm:mb-4 text-lg sm:text-xl font-semibold'>Page Analysis</h2>
-            <AuditTable data={audit.pages || []} />
-          </div>
-        </div>
+          <TabsContent value='pages'>
+            <div className='space-y-4 sm:space-y-6'>
+              <AuditSummaryCards audit={audit} />
+              <AuditTable data={audit.pages || []} />
+            </div>
+          </TabsContent>
+
+          <TabsContent value='keywords'>
+            <div className='space-y-4 sm:space-y-6'>
+              {audit.ranked_keywords_summary && !isAnalyzingKeywords && (
+                <RankedKeywordsSummaryCards summary={audit.ranked_keywords_summary} />
+              )}
+
+              {isAnalyzingKeywords ? (
+                <div className='text-center py-12 space-y-4'>
+                  <div className='mx-auto rounded-full bg-primary/10 p-4 w-fit'>
+                    <Loader2 className='h-12 w-12 animate-spin text-primary' />
+                  </div>
+                  <div>
+                    <h3 className='text-lg font-semibold'>Analyzing Keywords...</h3>
+                    <p className='text-sm text-muted-foreground mt-1'>
+                      Fetching ranked keywords from DataForSEO. This may take a few seconds.
+                    </p>
+                  </div>
+                </div>
+              ) : keywordCount > 0 ? (
+                <>
+                  <div className='flex items-center justify-between'>
+                    <h2 className='text-lg sm:text-xl font-semibold'>Keywords</h2>
+                    <div className='flex gap-2'>
+                      <Button
+                        variant='outline'
+                        size='sm'
+                        onClick={handleRefetchKeywords}
+                        disabled={isAnalyzingKeywords}
+                      >
+                        <RefreshCw className='h-4 w-4 mr-2' />
+                        Re-analyze
+                      </Button>
+                      <Button variant='outline' size='sm' asChild>
+                        <a href={auditApi.exportKeywordsCsv(auditId)} download>
+                          <Download className='h-4 w-4 mr-2' />
+                          Export CSV
+                        </a>
+                      </Button>
+                    </div>
+                  </div>
+                  <RankedKeywordsTable data={audit.ranked_keywords || []} />
+                </>
+              ) : (
+                <div className='text-center py-12 space-y-4'>
+                  <Key className='h-12 w-12 mx-auto text-muted-foreground' />
+                  <div>
+                    <h3 className='text-lg font-semibold'>No Keywords Data</h3>
+                    <p className='text-sm text-muted-foreground mt-1'>
+                      {audit.ranked_keywords_summary
+                        ? 'No ranked keywords found for this domain in the selected location.'
+                        : 'Click the button below to analyze ranked keywords for this domain.'}
+                    </p>
+                  </div>
+                  <Button onClick={handleRefetchKeywords}>
+                    <Key className='h-4 w-4 mr-2' />
+                    Analyze Keywords
+                  </Button>
+                </div>
+              )}
+            </div>
+          </TabsContent>
+        </Tabs>
       </Main>
     </>
   )

@@ -45,6 +45,15 @@ let _settingsQueries: {
   getAll: Statement;
 };
 
+let _rankedKeywordQueries: {
+  insert: Statement;
+  insertSummary: Statement;
+  getByAuditId: Statement;
+  getSummaryByAuditId: Statement;
+  deleteByAuditId: Statement;
+  deleteSummaryByAuditId: Statement;
+};
+
 // Initialize database schema
 export function initializeDatabase(): void {
   // Create audits table
@@ -176,6 +185,50 @@ export function initializeDatabase(): void {
     )
   `);
 
+  // Create ranked_keywords table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS ranked_keywords (
+      id TEXT PRIMARY KEY,
+      audit_id TEXT NOT NULL REFERENCES audits(id) ON DELETE CASCADE,
+      keyword TEXT NOT NULL,
+      position INTEGER,
+      position_absolute INTEGER,
+      previous_position INTEGER,
+      search_volume INTEGER DEFAULT 0,
+      cpc REAL DEFAULT 0,
+      competition REAL DEFAULT 0,
+      competition_level TEXT,
+      url TEXT,
+      etv REAL DEFAULT 0,
+      estimated_paid_traffic_cost REAL DEFAULT 0,
+      search_intent TEXT,
+      trend TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
+    )
+  `);
+
+  // Create ranked_keywords_summary table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS ranked_keywords_summary (
+      audit_id TEXT PRIMARY KEY REFERENCES audits(id) ON DELETE CASCADE,
+      total_keywords INTEGER DEFAULT 0,
+      estimated_traffic REAL DEFAULT 0,
+      traffic_value REAL DEFAULT 0,
+      pos_1_3 INTEGER DEFAULT 0,
+      pos_4_10 INTEGER DEFAULT 0,
+      pos_11_20 INTEGER DEFAULT 0,
+      pos_21_50 INTEGER DEFAULT 0,
+      pos_51_100 INTEGER DEFAULT 0,
+      new_keywords INTEGER DEFAULT 0,
+      improved INTEGER DEFAULT 0,
+      declined INTEGER DEFAULT 0,
+      lost INTEGER DEFAULT 0,
+      api_cost REAL DEFAULT 0,
+      location_code INTEGER,
+      language_code TEXT
+    )
+  `);
+
   // Migration: Add new columns if they don't exist
   try {
     const tableInfo = db.prepare("PRAGMA table_info(page_results)").all() as { name: string }[];
@@ -202,6 +255,8 @@ export function initializeDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_page_results_audit_id ON page_results(audit_id);
     CREATE INDEX IF NOT EXISTS idx_audits_status ON audits(status);
     CREATE INDEX IF NOT EXISTS idx_audits_created_at ON audits(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_ranked_keywords_audit_id ON ranked_keywords(audit_id);
+    CREATE INDEX IF NOT EXISTS idx_ranked_keywords_position ON ranked_keywords(position);
   `);
 
   // Initialize prepared statements after tables exist
@@ -291,6 +346,36 @@ export function initializeDatabase(): void {
     getAll: db.prepare(`SELECT key, value FROM settings`),
   };
 
+  _rankedKeywordQueries = {
+    insert: db.prepare(`
+      INSERT INTO ranked_keywords (
+        id, audit_id, keyword, position, position_absolute, previous_position,
+        search_volume, cpc, competition, competition_level, url,
+        etv, estimated_paid_traffic_cost, search_intent, trend
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `),
+    insertSummary: db.prepare(`
+      INSERT OR REPLACE INTO ranked_keywords_summary (
+        audit_id, total_keywords, estimated_traffic, traffic_value,
+        pos_1_3, pos_4_10, pos_11_20, pos_21_50, pos_51_100,
+        new_keywords, improved, declined, lost,
+        api_cost, location_code, language_code
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `),
+    getByAuditId: db.prepare(`
+      SELECT * FROM ranked_keywords WHERE audit_id = ? ORDER BY position ASC
+    `),
+    getSummaryByAuditId: db.prepare(`
+      SELECT * FROM ranked_keywords_summary WHERE audit_id = ?
+    `),
+    deleteByAuditId: db.prepare(`
+      DELETE FROM ranked_keywords WHERE audit_id = ?
+    `),
+    deleteSummaryByAuditId: db.prepare(`
+      DELETE FROM ranked_keywords_summary WHERE audit_id = ?
+    `),
+  };
+
   console.log('Database initialized successfully');
 }
 
@@ -316,6 +401,15 @@ export const settingsQueries = {
   get get() { return _settingsQueries.get; },
   get upsert() { return _settingsQueries.upsert; },
   get getAll() { return _settingsQueries.getAll; },
+};
+
+export const rankedKeywordQueries = {
+  get insert() { return _rankedKeywordQueries.insert; },
+  get insertSummary() { return _rankedKeywordQueries.insertSummary; },
+  get getByAuditId() { return _rankedKeywordQueries.getByAuditId; },
+  get getSummaryByAuditId() { return _rankedKeywordQueries.getSummaryByAuditId; },
+  get deleteByAuditId() { return _rankedKeywordQueries.deleteByAuditId; },
+  get deleteSummaryByAuditId() { return _rankedKeywordQueries.deleteSummaryByAuditId; },
 };
 
 // Helper functions for settings
