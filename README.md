@@ -147,6 +147,9 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
+
+> For a full publishing pipeline from analysis to published content, see [Rankenstein](https://rankenstein.pro).
+
 ## Author
 
 Built by [Agrici Daniel](https://agricidaniel.com/about) - AI Workflow Architect.
