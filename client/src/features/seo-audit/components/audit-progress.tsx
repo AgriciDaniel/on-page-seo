@@ -98,6 +98,43 @@ export function AuditProgress({ auditId }: AuditProgressProps) {
             </div>
           )}
 
+          {/* Keyword Analysis Status */}
+          {progress?.keyword_status === 'fetching' && (
+            <div className='rounded-lg border bg-blue-50 dark:bg-blue-950/30 p-4'>
+              <div className='flex items-center gap-2 text-sm'>
+                <Loader2 className='h-4 w-4 animate-spin text-blue-500' />
+                <span className='font-medium text-blue-700 dark:text-blue-400'>Analyzing Keywords</span>
+              </div>
+              {progress.keyword_progress && (
+                <p className='mt-1 text-xs text-blue-600 dark:text-blue-300'>{progress.keyword_progress}</p>
+              )}
+            </div>
+          )}
+
+          {progress?.keyword_status === 'completed' && (
+            <div className='rounded-lg border bg-green-50 dark:bg-green-950/30 p-4'>
+              <div className='flex items-center gap-2 text-sm'>
+                <CheckCircle2 className='h-4 w-4 text-green-500' />
+                <span className='font-medium text-green-700 dark:text-green-400'>
+                  {progress.keyword_progress || 'Keyword analysis complete'}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {progress?.keyword_status === 'failed' && (
+            <div className='rounded-lg border bg-yellow-50 dark:bg-yellow-950/30 p-4'>
+              <div className='flex items-center gap-2 text-sm'>
+                <AlertCircle className='h-4 w-4 text-yellow-500' />
+                <span className='font-medium text-yellow-700 dark:text-yellow-400'>Keyword analysis failed</span>
+              </div>
+              {progress.keyword_progress && (
+                <p className='mt-1 text-xs text-yellow-600 dark:text-yellow-300'>{progress.keyword_progress}</p>
+              )}
+              <p className='mt-1 text-xs text-muted-foreground'>The page audit completed successfully. You can re-run keywords later.</p>
+            </div>
+          )}
+
           {/* Connection Status */}
           {error && (
             <Alert variant='destructive'>

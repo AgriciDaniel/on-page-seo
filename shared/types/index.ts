@@ -131,11 +131,141 @@ export interface PageResult {
   created_at: string;
 }
 
+// Ranked Keywords types
+export type SearchIntent = 'informational' | 'commercial' | 'navigational' | 'transactional';
+export type PositionTrend = 'new' | 'up' | 'down' | 'lost' | 'stable';
+
+export interface RankedKeyword {
+  id: string;
+  audit_id: string;
+  keyword: string;
+  position: number;
+  position_absolute: number;
+  previous_position: number | null;
+  search_volume: number;
+  cpc: number;
+  competition: number;
+  competition_level: string;
+  url: string;
+  etv: number;
+  estimated_paid_traffic_cost: number;
+  search_intent: SearchIntent | null;
+  trend: PositionTrend;
+  created_at: string;
+}
+
+export interface RankedKeywordsSummary {
+  total_keywords: number;
+  estimated_traffic: number;
+  traffic_value: number;
+  pos_1_3: number;
+  pos_4_10: number;
+  pos_11_20: number;
+  pos_21_50: number;
+  pos_51_100: number;
+  new_keywords: number;
+  improved: number;
+  declined: number;
+  lost: number;
+  api_cost: number;
+  location_code: number;
+  language_code: string;
+}
+
+// DataForSEO Labs API types
+export interface DataForSEOLabsKeywordInfo {
+  se_type: string;
+  last_updated_time: string;
+  competition: number;
+  competition_level: string;
+  cpc: number;
+  search_volume: number;
+  monthly_searches: Array<{ year: number; month: number; search_volume: number }>;
+  categories: number[] | null;
+}
+
+export interface DataForSEOLabsRankedKeywordItem {
+  se_type: string;
+  keyword_data: {
+    keyword: string;
+    keyword_info: DataForSEOLabsKeywordInfo;
+    search_intent_info?: {
+      se_type: string;
+      main_intent: string;
+      foreign_intent: string[];
+      last_updated_time: string;
+    };
+  };
+  ranked_serp_element: {
+    se_type: string;
+    serp_item: {
+      se_type: string;
+      type: string;
+      rank_group: number;
+      rank_absolute: number;
+      url: string;
+      etv: number;
+      estimated_paid_traffic_cost: number;
+      is_lost: boolean;
+      last_updated_time: string;
+      previous_updated_time: string;
+      is_new: boolean;
+    };
+  };
+}
+
+export interface DataForSEOLabsRankedKeywordsResponse {
+  tasks: Array<{
+    id: string;
+    status_code: number;
+    status_message: string;
+    time: string;
+    cost: number;
+    result_count: number;
+    result: Array<{
+      se_type: string;
+      target: string;
+      location_code: number;
+      language_code: string;
+      total_count: number;
+      items_count: number;
+      metrics: {
+        organic: {
+          pos_1: number;
+          pos_2_3: number;
+          pos_4_10: number;
+          pos_11_20: number;
+          pos_21_30: number;
+          pos_31_40: number;
+          pos_41_50: number;
+          pos_51_60: number;
+          pos_61_70: number;
+          pos_71_80: number;
+          pos_81_90: number;
+          pos_91_100: number;
+          etv: number;
+          impressions_etv: number;
+          count: number;
+          estimated_paid_traffic_cost: number;
+          is_new: number;
+          is_up: number;
+          is_down: number;
+          is_lost: number;
+        };
+      };
+      items: DataForSEOLabsRankedKeywordItem[];
+    }>;
+  }>;
+}
+
 // API Request/Response types
 export interface CreateAuditRequest {
   url: string;
   limit?: number;
   pages?: string[];
+  keyword_location_code?: number;
+  keyword_language_code?: string;
+  keyword_limit?: number;
 }
 
 export interface AuditWithResults extends Audit {
@@ -145,6 +275,8 @@ export interface AuditWithResults extends Audit {
     pages_with_issues: number;
     passing_core_web_vitals: number;
   };
+  ranked_keywords?: RankedKeyword[];
+  ranked_keywords_summary?: RankedKeywordsSummary;
 }
 
 // Progress event for SSE
@@ -155,6 +287,8 @@ export interface ProgressEvent {
   completed_pages: number;
   current_url?: string;
   error?: string;
+  keyword_status?: 'pending' | 'fetching' | 'completed' | 'failed';
+  keyword_progress?: string;
 }
 
 // Firecrawl API types
